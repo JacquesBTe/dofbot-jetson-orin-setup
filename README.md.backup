@@ -1,0 +1,167 @@
+# DOFBOT on Jetson Orin Nano Setup Guide
+
+Complete guide for running Yahboom DOFBOT robot arm on NVIDIA Jetson Orin Nano 8GB with ROS 1 Noetic via Docker.
+
+## 🚨 Problem Statement
+
+Yahboom's DOFBOT comes with a system image for the **original Jetson Nano (Tegra210)**, which is incompatible with the newer **Jetson Orin Nano (Tegra234)**. Additionally:
+
+- The provided image uses ROS Melodic (Ubuntu 18.04)
+- JetPack 6.x requires Ubuntu 22.04
+- ROS Melodic is not available for Ubuntu 22.04
+- Hardware interfaces (I2C buses) differ between Jetson Nano and Orin Nano
+
+## ✅ Solution Overview
+
+We use **Docker** to run ROS 1 Noetic in an isolated Ubuntu 20.04 environment while maintaining full hardware access to the Jetson Orin Nano's GPIO and I2C interfaces.
+
+## 📋 Prerequisites
+
+- NVIDIA Jetson Orin Nano 8GB
+- JetPack 6.x installed (Ubuntu 22.04)
+- DOFBOT robot arm kit from Yahboom
+- Original Yahboom SD card image (for extracting software)
+- USB drive or SD card reader
+- Basic Linux terminal knowledge
+
+## 🚀 Quick Start Summary
+
+1. Flash JetPack 6.x on Jetson Orin Nano (not Yahboom's image)
+2. Mount original Yahboom SD card to extract software
+3. Create Docker container with ROS Noetic
+4. **Fix I2C bus from bus 1 to bus 7** (critical!)
+5. Build and run Yahboom software
+
+## 🔑 Key Insight - The Critical Fix
+
+The servo controller is on **I2C bus 7** on Orin Nano, but Yahboom's code expects **bus 1**:
+```python
+# In Arm_Lib.py, change line 11:
+self.bus = smbus.SMBus(1)  # ❌ Old Nano
+# to:
+self.bus = smbus.SMBus(7)  # ✅ Orin Nano
+```
+
+## 📚 Detailed Steps
+
+### 1. Hardware Setup
+- Assemble DOFBOT
+- Connect to Jetson Orin Nano GPIO
+- Provide 12V power to DOFBOT
+
+### 2. Extract Yahboom Software
+```bash
+# Mount Yahboom SD card
+sudo mount /dev/sda1 /media/yahboom
+
+# Copy software
+mkdir -p ~/yahboom_backup
+cp -r /media/yahboom/home/jetson/catkin_ws ~/yahboom_backup/
+cp -r /media/yahboom/home/jetson/dofbot_ws ~/yahboom_backup/
+cp -r /media/yahboom/home/jetson/Dofbot ~/yahboom_backup/
+```
+
+### 3. Create Docker Container
+```bash
+# Create Dockerfile
+mkdir ~/dofbot_docker
+cd ~/dofbot_docker
+
+cat > Dockerfile << 'DOCKERFILE'
+FROM ros:noetic-robot
+
+RUN apt-get update && apt-get install -y \
+    ros-noetic-moveit \
+    python3-pip \
+    python3-opencv \
+    i2c-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install smbus2 opencv-python pyserial Jetson.GPIO
+
+RUN mkdir -p /root/catkin_ws/src
+WORKDIR /root/catkin_ws
+
+RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+
+CMD ["/bin/bash"]
+DOCKERFILE
+
+# Build image
+docker build -t dofbot_ros .
+
+# Run container
+docker run -it --privileged \
+  --name dofbot_container \
+  --network host \
+  --env="DISPLAY" \
+  --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+  -v ~/yahboom_backup:/root/yahboom_backup \
+  -v /dev:/dev \
+  dofbot_ros bash
+```
+
+### 4. Inside Docker - Setup Software
+```bash
+# Install Arm library
+cd /root/yahboom_backup/Dofbot/0.py_install
+pip3 install -e .
+
+# Fix smbus import
+sed -i 's/import smbus/import smbus2 as smbus/' /root/yahboom_backup/Dofbot/0.py_install/Arm_Lib/Arm_Lib.py
+
+# THE CRITICAL FIX - Change I2C bus
+sed -i 's/self.bus = smbus.SMBus(1)/self.bus = smbus.SMBus(7)/' /root/yahboom_backup/Dofbot/0.py_install/Arm_Lib/Arm_Lib.py
+
+# Build ROS workspace
+cp -r /root/yahboom_backup/catkin_ws/src/* /root/catkin_ws/src/
+cd /root/catkin_ws
+catkin_make
+source devel/setup.bash
+```
+
+### 5. Test the Arm
+```python
+#!/usr/bin/env python3
+import sys
+sys.path.append('/root/yahboom_backup/Dofbot/0.py_install')
+from Arm_Lib import Arm_Device
+import time
+
+Arm = Arm_Device()
+Arm.Arm_serial_set_torque(1)
+Arm.Arm_serial_servo_write6(90, 90, 90, 90, 90, 90, 1000)
+time.sleep(2)
+print("✅ Arm is working!")
+```
+
+## 🎯 What Works
+
+- ✅ Full 6-DOF arm control
+- ✅ Camera access and OpenCV
+- ✅ Face detection and tracking
+- ✅ All Yahboom demo programs
+- ✅ ROS nodes and services
+
+## ⚠️ Known Issues
+
+1. **I2C bus difference** - Fixed by changing bus 1 → 7
+2. **Jupyter notebooks** - Convert to .py scripts with `jupyter nbconvert`
+3. **smbus vs smbus2** - Fixed by import aliasing
+
+## 🤝 Contributing
+
+Issues or improvements? Please contribute!
+
+## 📄 License
+
+MIT License
+
+## 🙏 Credits
+
+- Yahboom for DOFBOT hardware
+- NVIDIA for Jetson platform
+- ROS community
+
+---
+*Note: Community guide, not officially supported by Yahboom or NVIDIA*

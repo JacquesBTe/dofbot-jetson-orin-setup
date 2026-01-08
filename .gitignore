@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.ipynb_checkpoints/
+
+# ROS
+build/
+devel/
+*.bag
+
+# Docker
+.dockerignore
+
+# System
+.DS_Store
+*~
+
+# Yahboom proprietary software (do not commit)
+yahboom_backup/
