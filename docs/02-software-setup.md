@@ -7,7 +7,7 @@
 
 ## Quick Setup
 ```bash
-git clone https://github.com/yourusername/dofbot-jetson-orin-setup
+git clone https://github.com/JacquesBTe/dofbot-jetson-orin-setup
 cd dofbot-jetson-orin-setup
 ./scripts/setup.sh
 ./scripts/start_container.sh
